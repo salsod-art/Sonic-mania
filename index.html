@@ -1,38 +1,60 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <title>RSDKv4 Web Port</title>
+<script type='text/javascript'>
+  var statusElement = document.getElementById('status');
+
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    print: (text) => console.log(text),
+    printErr: (text) => console.error(text),
+    setStatus: (text) => {
+        statusElement.innerHTML = text;
+    },
     
-    <script src="coi-serviceworker.js"></script>
+    preRun: [async function() {
+        // This makes the WASM engine wait until we finish joining the files
+        Module.addRunDependency('split-data'); 
+        
+        // 1. MATCH YOUR FILENAMES HERE EXACTLY
+        const parts = [
+            'Data.rsdk.part1', 
+            'Data.rsdk.part2', 
+            'Data.rsdk.part3', 
+            'Data.rsdk.part4'
+        ];
+        
+        try {
+            Module.setStatus("Downloading game parts...");
+            
+            // 2. Fetch all parts from your GitHub repo
+            const responses = await Promise.all(parts.map(p => fetch(p)));
+            
+            // Check if any parts failed to download (404 error)
+            for (let res of responses) {
+                if (!res.ok) throw new Error(`Could not find ${res.url}`);
+            }
 
-    <style>
-        body { background: #000; color: white; display: flex; flex-direction: column; align-items: center; }
-        canvas { border: 2px solid #444; width: 800px; height: 450px; }
-    </style>
-</head>
-<body>
-    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="status">Downloading...</div>
-
-    <script type='text/javascript'>
-      var statusElement = document.getElementById('status');
-
-      var Module = {
-        canvas: document.getElementById('canvas'),
-        print: (text) => console.log(text),
-        printErr: (text) => console.error(text),
-        setStatus: (text) => {
-            statusElement.innerHTML = text;
-        },
-        totalDependencies: 0,
-        monitorRunDependencies: (left) => {
-          this.totalDependencies = Math.max(this.totalDependencies, left);
-          Module.setStatus(left ? `Preparing... (${this.totalDependencies-left}/${this.totalDependencies})` : 'All downloads complete.');
+            const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
+            
+            Module.setStatus("Re-assembling Data.rsdk...");
+            
+            // 3. Combine the parts into one big block of data
+            let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
+            let combined = new Uint8Array(totalLength);
+            let offset = 0;
+            for (let buf of buffers) {
+                combined.set(new Uint8Array(buf), offset);
+                offset += buf.byteLength;
+            }
+            
+            // 4. Create the virtual file for the engine to use
+            Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
+            
+            Module.setStatus("Loading engine...");
+            Module.removeRunDependency('split-data'); // Start the game!
+            
+        } catch (e) {
+            Module.setStatus("Error: " + e.message);
+            console.error(e);
         }
-      };
-    </script>
-
-    <script async src="RSDKv4.js"></script>
-</body>
-</html>
+    }]
+  };
+</script>
