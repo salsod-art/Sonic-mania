@@ -3,6 +3,9 @@
 <head>
     <meta charset="utf-8">
     <title>RSDKv4 Web Port</title>
+    
+    <script src="coi-serviceworker.js"></script>
+
     <style>
         body { background: #000; color: white; display: flex; flex-direction: column; align-items: center; }
         canvas { border: 2px solid #444; width: 800px; height: 450px; }
@@ -15,7 +18,6 @@
     <script type='text/javascript'>
       var statusElement = document.getElementById('status');
 
-      // This is the global object your big JS script looks for
       var Module = {
         canvas: document.getElementById('canvas'),
         print: (text) => console.log(text),
