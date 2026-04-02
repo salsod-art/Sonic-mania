@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>RSDKv4 Web Port</title>
+    <style>
+        body { background: #000; color: white; display: flex; flex-direction: column; align-items: center; }
+        canvas { border: 2px solid #444; width: 800px; height: 450px; }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
+    <div id="status">Downloading...</div>
+
+    <script type='text/javascript'>
+      var statusElement = document.getElementById('status');
+
+      // This is the global object your big JS script looks for
+      var Module = {
+        canvas: document.getElementById('canvas'),
+        print: (text) => console.log(text),
+        printErr: (text) => console.error(text),
+        setStatus: (text) => {
+            statusElement.innerHTML = text;
+        },
+        totalDependencies: 0,
+        monitorRunDependencies: (left) => {
+          this.totalDependencies = Math.max(this.totalDependencies, left);
+          Module.setStatus(left ? `Preparing... (${this.totalDependencies-left}/${this.totalDependencies})` : 'All downloads complete.');
+        }
+      };
+    </script>
+
+    <script async src="RSDKv4.js"></script>
+</body>
+</html>
