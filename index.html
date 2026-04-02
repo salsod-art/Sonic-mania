@@ -3,69 +3,74 @@
 <head>
     <meta charset="utf-8">
     <script src="coi-serviceworker.js"></script>
-    <title>Sonic 2 Web Port</title>
+    <title>RSDKv4 Deep Analysis</title>
     <style>
-        body { background: #111; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; margin-top: 20px; }
-        canvas { border: 2px solid #333; width: 800px; height: 450px; background: #000; cursor: pointer; }
-        #debug-log { width: 800px; height: 180px; overflow-y: scroll; font-size: 11px; color: #888; background: #000; padding: 10px; border: 1px solid #222; margin-top: 10px; }
+        body { background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
+        canvas { border: 1px solid #444; width: 800px; height: 450px; background: #000; }
+        #debug-log { width: 800px; height: 250px; overflow-y: scroll; font-size: 10px; color: #bbb; background: #050505; padding: 10px; border: 1px solid #222; margin-top: 10px; line-height: 1.4; }
+        .err { color: #ff5555; }
+        .sys { color: #5555ff; }
+        .engine { color: #55ff55; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="debug-log">Ready for boot...</div>
+    <div id="debug-log">Scanning System...<br></div>
 
     <script type='text/javascript'>
-      const debugElement = document.getElementById('debug-log');
-      function logDebug(msg, color = "#888") {
-          debugElement.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-          debugElement.scrollTop = debugElement.scrollHeight;
+      const log = document.getElementById('debug-log');
+      function out(msg, cls = "") {
+          log.innerHTML += `<div class="${cls}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
+          log.scrollTop = log.scrollHeight;
       }
 
       var Module = {
         canvas: document.getElementById('canvas'),
-        print: (text) => logDebug("ENGINE: " + text, "#4f4"),
-        printErr: (text) => {
-            // Filter out common harmless warnings to find the real error
-            if (!text.includes("GL emulation")) logDebug("WASM-ERR: " + text, "#f44");
+        print: (t) => out("ENGINE: " + t, "engine"),
+        printErr: (t) => {
+            if (t.includes("failed to fill whole buffer")) return; // Ignore noisy sound warnings
+            out("WASM-ERR: " + t, "err");
         },
         
         onRuntimeInitialized: function() {
-            logDebug("--- ENGINE ONLINE ---", "#fff");
-            logDebug("1. CLICK THE CANVAS", "#f0f");
-            logDebug("2. PRESS 'ENTER' TO START", "#f0f");
+            out("CORE: WASM molecules assembled. Engine is hot.", "sys");
+            out("ACTION: CLICK CANVAS AND PRESS 'ENTER' OR 'ESC'", "#fff");
         },
 
         preRun: [function() {
+            // SPY ON THE FILESYSTEM
+            const originalOpen = Module.FS.open;
+            Module.FS.open = function(path, flags, mode) {
+                out("FS_ACCESS: Attempting to open -> " + path, "sys");
+                return originalOpen.apply(this, arguments);
+            };
+
             Module.addRunDependency('split-data'); 
             
             (async () => {
                 const parts = ['Data.rsdk.part1', 'Data.rsdk.part2'];
                 try {
-                    logDebug("Downloading Mobile Assets...");
-                    const responses = await Promise.all(parts.map(p => fetch(p)));
-                    const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
+                    out("NET: Fetching 2-part payload...");
+                    const res = await Promise.all(parts.map(p => fetch(p)));
+                    const bufs = await Promise.all(res.map(r => r.arrayBuffer()));
                     
-                    let totalLength = buffers.reduce((a, b) => a + b.byteLength, 0);
-                    let combined = new Uint8Array(totalLength);
+                    let total = bufs.reduce((a, b) => a + b.byteLength, 0);
+                    let combined = new Uint8Array(total);
                     let offset = 0;
-                    for (let b of buffers) { 
-                        combined.set(new Uint8Array(b), offset); 
-                        offset += b.byteLength; 
-                    }
+                    for (let b of bufs) { combined.set(new Uint8Array(b), offset); offset += b.byteLength; }
 
-                    // Write filenames for all possible cases (Sonic 2 is picky)
-                    Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
-                    Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
+                    // Mount the data in every possible naming convention
+                    const targets = ['Data.rsdk', 'data.rsdk', 'Data.RSDK', 'data.RSDK'];
+                    targets.forEach(n => Module.FS_createDataFile('/', n, combined, true, true, true));
                     
-                    // Force Video and Engine settings
-                    // DevMenu=1 allows us to press 'ESC' to see if the engine is alive
-                    const settings = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n[Game]\nDevMenu=1\n";
-                    Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settings), true, true, true);
+                    // Force a settings file that enables DevMenu for debugging
+                    const ini = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n[Game]\nDevMenu=1\nLanguage=0\n";
+                    Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(ini), true, true, true);
 
-                    logDebug("FS Check: " + Module.FS.readdir('/').join(', '), "#0ff");
+                    out("VFS: Root directory populated.", "sys");
                     Module.removeRunDependency('split-data'); 
                 } catch (e) {
-                    logDebug("FATAL: " + e.message, "#f00");
+                    out("FATAL: " + e.message, "err");
                 }
             })();
         }]
