@@ -7,63 +7,46 @@
     <style>
         body { background: #111; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
         canvas { border: 2px solid #333; width: 800px; height: 450px; background: #000; margin-top: 20px; }
-        #status { margin: 15px; font-size: 14px; color: #fff; background: #222; padding: 10px; width: 780px; text-align: center; border-radius: 5px; }
+        #status { margin: 15px; font-size: 14px; color: #fff; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="status">Preparing Engine...</div>
+    <div id="status">Preparing...</div>
 
     <script type='text/javascript'>
-      const statusDisp = document.getElementById('status');
-      
       var Module = {
         canvas: document.getElementById('canvas'),
-        // We are using standard console logs now to prevent the 'Call Stack' crash
-        print: (text) => console.log("RSDK:", text),
-        printErr: (text) => console.error("RSDK-ERR:", text),
-        
-        setStatus: (text) => {
-            if (statusDisp) statusDisp.innerHTML = text;
-        },
+        print: (text) => console.log(text),
+        printErr: (text) => console.error(text),
+        setStatus: (text) => { document.getElementById('status').innerHTML = text; },
 
         preRun: [function() {
-            Module.addRunDependency('data-load'); 
-            
+            Module.addRunDependency('data'); 
             (async () => {
                 try {
-                    Module.setStatus("Downloading Sonic 2 Parts...");
-                    // Using the 2 parts you mentioned
+                    Module.setStatus("Fetching Data...");
                     const parts = ['Data.rsdk.part1', 'Data.rsdk.part2'];
-                    const responses = await Promise.all(parts.map(p => fetch(p)));
+                    const res = await Promise.all(parts.map(p => fetch(p)));
+                    const bufs = await Promise.all(res.map(r => r.arrayBuffer()));
                     
-                    for (let res of responses) {
-                        if (!res.ok) throw new Error("File " + res.url + " not found!");
-                    }
+                    const combined = new Uint8Array(bufs[0].byteLength + bufs[1].byteLength);
+                    combined.set(new Uint8Array(bufs[0]), 0);
+                    combined.set(new Uint8Array(bufs[1]), bufs[0].byteLength);
 
-                    const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-                    Module.setStatus("Stitching Game Data...");
-                    
-                    const total = buffers.reduce((a, b) => a + b.byteLength, 0);
-                    const combined = new Uint8Array(total);
-                    let offset = 0;
-                    for (let b of buffers) { 
-                        combined.set(new Uint8Array(b), offset); 
-                        offset += b.byteLength; 
-                    }
-
-                    // Create the file in the virtual drive
+                    // Standard names
                     Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
                     Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
                     
-                    // Essential settings for Mobile RSDKv4 data
-                    const ini = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n[Game]\nLanguage=0\n";
+                    // CRITICAL: This tells the engine to act like the Mobile version
+                    // and enables the Dev Menu so we can escape the black screen.
+                    const ini = "[Video]\nWindowed=0\nRenderer=0\n[Game]\nLanguage=0\nDevMenu=1\nEngineType=1\n";
                     Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(ini), true, true, true);
 
                     Module.setStatus("Ready! Click canvas and press Enter.");
-                    Module.removeRunDependency('data-load'); 
+                    Module.removeRunDependency('data'); 
                 } catch (e) {
-                    Module.setStatus("<span style='color:red'>ERROR: " + e.message + "</span>");
+                    Module.setStatus("Error: " + e.message);
                 }
             })();
         }]
