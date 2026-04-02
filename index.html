@@ -62,7 +62,7 @@
                     logDebug(`Reassembled file size: ${(totalLength / 1024 / 1024).toFixed(2)} MB`, "#ff0");
                     
                     // WRITE THE FILES
-                    Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
+                    Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
                     logDebug("File 'Data.rsdk' written to Virtual Root.", "#fff");
 
                     const settingsContent = `[Video]\nWindowed=0\nRenderer=0\nfsWidth=800\nfsHeight=450\n`;
