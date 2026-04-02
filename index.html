@@ -1,60 +1,70 @@
 <script type='text/javascript'>
+  // 1. Immediate check to see if JS is running
+  console.log("Index.html script started");
+  
   var statusElement = document.getElementById('status');
+  if (statusElement) statusElement.innerText = "Script initialized...";
 
   var Module = {
     canvas: document.getElementById('canvas'),
-    print: (text) => console.log(text),
-    printErr: (text) => console.error(text),
+    print: (text) => console.log("WASM-Out: " + text),
+    printErr: (text) => console.error("WASM-Err: " + text),
     setStatus: (text) => {
-        statusElement.innerHTML = text;
+        if (statusElement) statusElement.innerHTML = text;
+        console.log("Status: " + text);
     },
     
-    preRun: [async function() {
-        // This makes the WASM engine wait until we finish joining the files
-        Module.addRunDependency('split-data'); 
-        
-        // 1. MATCH YOUR FILENAMES HERE EXACTLY
-        const parts = [
-            'Data.rsdk.part1', 
-            'Data.rsdk.part2', 
-            'Data.rsdk.part3', 
-            'Data.rsdk.part4'
-        ];
-        
-        try {
-            Module.setStatus("Downloading game parts...");
+    preRun: [function() {
+        // We use an Async Immediately Invoked Function Expression (IIFE) 
+        // to handle the 'await' without crashing the engine's startup
+        (async () => {
+            Module.addRunDependency('split-data'); 
             
-            // 2. Fetch all parts from your GitHub repo
-            const responses = await Promise.all(parts.map(p => fetch(p)));
+            // DOUBLE CHECK THESE NAMES MATCH YOUR GITHUB EXACTLY (Case Sensitive!)
+            const parts = [
+                'Data.rsdk.part1', 
+                'Data.rsdk.part2', 
+                'Data.rsdk.part3', 
+                'Data.rsdk.part4'
+            ];
             
-            // Check if any parts failed to download (404 error)
-            for (let res of responses) {
-                if (!res.ok) throw new Error(`Could not find ${res.url}`);
-            }
+            try {
+                Module.setStatus("Fetching 75MB game data...");
+                
+                const responses = await Promise.all(parts.map(p => fetch(p)));
+                
+                // If a file is missing, this will catch it
+                for (let i = 0; i < responses.length; i++) {
+                    if (!responses[i].ok) {
+                        throw new Error("Missing file: " + parts[i]);
+                    }
+                }
 
-            const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-            
-            Module.setStatus("Re-assembling Data.rsdk...");
-            
-            // 3. Combine the parts into one big block of data
-            let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
-            let combined = new Uint8Array(totalLength);
-            let offset = 0;
-            for (let buf of buffers) {
-                combined.set(new Uint8Array(buf), offset);
-                offset += buf.byteLength;
+                const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
+                
+                Module.setStatus("Stitching parts together...");
+                
+                let totalLength = 0;
+                for (let b of buffers) totalLength += b.byteLength;
+                
+                let combined = new Uint8Array(totalLength);
+                let offset = 0;
+                for (let buf of buffers) {
+                    combined.set(new Uint8Array(buf), offset);
+                    offset += buf.byteLength;
+                }
+                
+                // Save to the virtual filesystem
+                Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
+                
+                Module.setStatus("Data Ready. Launching...");
+                Module.removeRunDependency('split-data'); 
+                
+            } catch (e) {
+                Module.setStatus("CRITICAL ERROR: " + e.message);
+                console.error("Setup failed:", e);
             }
-            
-            // 4. Create the virtual file for the engine to use
-            Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
-            
-            Module.setStatus("Loading engine...");
-            Module.removeRunDependency('split-data'); // Start the game!
-            
-        } catch (e) {
-            Module.setStatus("Error: " + e.message);
-            console.error(e);
-        }
+        })();
     }]
   };
 </script>
