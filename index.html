@@ -5,32 +5,31 @@
     <script src="coi-serviceworker.js"></script>
     <title>RSDKv4 Web Port</title>
     <style>
-        body { background: #111; color: #00ff00; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
-        canvas { border: 2px solid #444; width: 800px; height: 450px; background: #000; }
-        #status { margin-top: 10px; font-weight: bold; }
+        body { background: #111; color: #00ff00; display: flex; flex-direction: column; align-items: center; font-family: monospace; margin-top: 50px; }
+        canvas { border: 2px solid #444; width: 800px; height: 450px; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
+        #status { margin-top: 15px; font-size: 1.2em; text-shadow: 1px 1px #000; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="status">Initializing...</div>
+    <div id="status">Initializing Engine...</div>
 
     <script type='text/javascript'>
       var statusElement = document.getElementById('status');
       
-      // The Engine looks for this global variable
       var Module = {
         canvas: document.getElementById('canvas'),
-        print: (text) => console.log(text),
-        printErr: (text) => console.error(text),
+        print: (text) => console.log("RSDK: " + text),
+        printErr: (text) => console.error("RSDK-Err: " + text),
         setStatus: (text) => {
             if (statusElement) statusElement.innerHTML = text;
         },
         
         preRun: [function() {
-            // This is the logic to stitch your .part files back together
             Module.addRunDependency('split-data'); 
             
             (async () => {
+                // Ensure these match your GitHub filenames exactly
                 const parts = [
                     'Data.rsdk.part1', 
                     'Data.rsdk.part2', 
@@ -39,7 +38,7 @@
                 ];
                 
                 try {
-                    Module.setStatus("Downloading Parts...");
+                    Module.setStatus("Downloading Game Data (75MB)...");
                     const responses = await Promise.all(parts.map(p => fetch(p)));
                     
                     for (let res of responses) {
@@ -47,7 +46,7 @@
                     }
 
                     const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-                    Module.setStatus("Stitching Data...");
+                    Module.setStatus("Stitching Game Assets...");
                     
                     let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
                     let combined = new Uint8Array(totalLength);
@@ -57,13 +56,33 @@
                         offset += buf.byteLength;
                     }
                     
-                    // Create the Data.rsdk file in the virtual drive
+                    // 1. Write the main data file
                     Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
                     
-                    Module.setStatus("Ready! Starting Sonic...");
+                    // 2. Write the settings file to prevent black screen/scaling issues
+                    const settingsContent = `
+[Video]
+Windowed=0
+Border=0
+ExclusiveFull=0
+VSync=1
+Renderer=0
+fsWidth=800
+fsHeight=450
+windowWidth=800
+windowHeight=450
+`;
+                    Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settingsContent), true, true, true);
+
+                    Module.setStatus("Applying Security Headers...");
+                    // Give the Service Worker a tiny moment to breathe
+                    await new Promise(r => setTimeout(r, 500));
+
+                    Module.setStatus("Ready! Launching...");
                     Module.removeRunDependency('split-data'); 
                 } catch (e) {
-                    Module.setStatus("ERROR: " + e.message);
+                    Module.setStatus("<span style='color:red'>ERROR: " + e.message + "</span>");
+                    console.error(e);
                 }
             })();
         }]
