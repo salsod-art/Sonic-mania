@@ -3,50 +3,54 @@
 <head>
     <meta charset="utf-8">
     <script src="coi-serviceworker.js"></script>
-    <title>RSDKv4 Web Port</title>
+    <title>RSDKv4 Debug Build</title>
     <style>
-        body { background: #111; color: #00ff00; display: flex; flex-direction: column; align-items: center; font-family: monospace; margin-top: 50px; }
-        canvas { border: 2px solid #444; width: 800px; height: 450px; background: #000; box-shadow: 0 0 20px rgba(0,0,0,0.5); }
-        #status { margin-top: 15px; font-size: 1.2em; text-shadow: 1px 1px #000; }
+        body { background: #111; color: #00ff00; display: flex; flex-direction: column; align-items: center; font-family: monospace; margin-top: 20px; }
+        canvas { border: 2px solid #444; width: 800px; height: 450px; background: #000; }
+        #status { margin-top: 15px; font-size: 14px; color: #0f0; background: #000; padding: 5px; width: 800px; border: 1px solid #333; }
+        #debug-log { width: 800px; height: 100px; overflow-y: scroll; font-size: 11px; color: #aaa; margin-top: 10px; background: #000; border: 1px solid #333; padding: 5px; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="status">Initializing Engine...</div>
+    <div id="status">System Standby...</div>
+    <div id="debug-log">Debug Console Initialized...<br></div>
 
     <script type='text/javascript'>
-      var statusElement = document.getElementById('status');
-      
+      const statusElement = document.getElementById('status');
+      const debugElement = document.getElementById('debug-log');
+
+      function logDebug(msg, color = "#aaa") {
+          console.log("DEBUG: " + msg);
+          debugElement.innerHTML += `<span style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
+          debugElement.scrollTop = debugElement.scrollHeight;
+      }
+
       var Module = {
         canvas: document.getElementById('canvas'),
-        print: (text) => console.log("RSDK: " + text),
-        printErr: (text) => console.error("RSDK-Err: " + text),
+        print: (text) => logDebug("WASM: " + text, "#0f0"),
+        printErr: (text) => logDebug("WASM-ERR: " + text, "#f44"),
         setStatus: (text) => {
             if (statusElement) statusElement.innerHTML = text;
+            logDebug("Status Change: " + text, "#55f");
         },
         
         preRun: [function() {
             Module.addRunDependency('split-data'); 
             
             (async () => {
-                // Ensure these match your GitHub filenames exactly
-                const parts = [
-                    'Data.rsdk.part1', 
-                    'Data.rsdk.part2', 
-                    'Data.rsdk.part3', 
-                    'Data.rsdk.part4'
-                ];
+                const parts = ['Data.rsdk.part1', 'Data.rsdk.part2', 'Data.rsdk.part3', 'Data.rsdk.part4'];
                 
                 try {
-                    Module.setStatus("Downloading Game Data (75MB)...");
+                    logDebug("Starting Fetch operation...");
                     const responses = await Promise.all(parts.map(p => fetch(p)));
                     
                     for (let res of responses) {
-                        if (!res.ok) throw new Error("Could not find " + res.url);
+                        if (!res.ok) throw new Error("Network error on: " + res.url);
                     }
 
                     const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-                    Module.setStatus("Stitching Game Assets...");
+                    logDebug("Parts downloaded. Total pieces: " + buffers.length, "#ff0");
                     
                     let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
                     let combined = new Uint8Array(totalLength);
@@ -55,34 +59,29 @@
                         combined.set(new Uint8Array(buf), offset);
                         offset += buf.byteLength;
                     }
+                    logDebug(`Reassembled file size: ${(totalLength / 1024 / 1024).toFixed(2)} MB`, "#ff0");
                     
-                    // 1. Write the main data file
+                    // WRITE THE FILES
                     Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
-                    
-                    // 2. Write the settings file to prevent black screen/scaling issues
-                    const settingsContent = `
-[Video]
-Windowed=0
-Border=0
-ExclusiveFull=0
-VSync=1
-Renderer=0
-fsWidth=800
-fsHeight=450
-windowWidth=800
-windowHeight=450
-`;
+                    logDebug("File 'Data.rsdk' written to Virtual Root.", "#fff");
+
+                    const settingsContent = `[Video]\nWindowed=0\nRenderer=0\nfsWidth=800\nfsHeight=450\n`;
                     Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settingsContent), true, true, true);
+                    logDebug("File 'settings.ini' written to Virtual Root.", "#fff");
 
-                    Module.setStatus("Applying Security Headers...");
-                    // Give the Service Worker a tiny moment to breathe
-                    await new Promise(r => setTimeout(r, 500));
+                    // FS EXPLORER: List everything in the root to be 100% sure
+                    try {
+                        const files = Module.FS.readdir('/');
+                        logDebug("Current Virtual Filesystem: " + files.join(', '), "#0ff");
+                    } catch(fsErr) {
+                        logDebug("FS Check Failed: " + fsErr.message, "#f00");
+                    }
 
-                    Module.setStatus("Ready! Launching...");
+                    logDebug("Handing control to RSDKv4 Engine...", "#0f0");
                     Module.removeRunDependency('split-data'); 
                 } catch (e) {
-                    Module.setStatus("<span style='color:red'>ERROR: " + e.message + "</span>");
-                    console.error(e);
+                    logDebug("CRITICAL: " + e.message, "#f00");
+                    Module.setStatus("Boot Failure: Check Debug Log");
                 }
             })();
         }]
