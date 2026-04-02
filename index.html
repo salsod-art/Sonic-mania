@@ -3,52 +3,50 @@
 <head>
     <meta charset="utf-8">
     <script src="coi-serviceworker.js"></script>
-    <title>Sonic 2 RSDKv4 Web</title>
+    <title>Sonic 2 Web Port</title>
     <style>
-        body { background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
-        canvas { border: 1px solid #222; width: 800px; height: 450px; cursor: pointer; background: #000; }
-        #status { margin: 10px; font-size: 12px; }
-        #debug-log { width: 800px; height: 120px; overflow-y: scroll; font-size: 11px; color: #666; background: #050505; padding: 5px; border: 1px solid #111; }
+        body { background: #111; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; margin-top: 20px; }
+        canvas { border: 2px solid #333; width: 800px; height: 450px; background: #000; cursor: pointer; }
+        #debug-log { width: 800px; height: 150px; overflow-y: scroll; font-size: 11px; color: #888; background: #000; padding: 10px; border: 1px solid #222; margin-top: 10px; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="status">System Standby...</div>
     <div id="debug-log"></div>
 
     <script type='text/javascript'>
       const debugElement = document.getElementById('debug-log');
-      function logDebug(msg, color = "#666") {
+      function logDebug(msg, color = "#888") {
           debugElement.innerHTML += `<div style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
           debugElement.scrollTop = debugElement.scrollHeight;
       }
 
       var Module = {
         canvas: document.getElementById('canvas'),
-        print: (text) => logDebug("ENGINE: " + text, "#0f0"),
+        print: (text) => logDebug("ENGINE: " + text, "#4f4"),
         printErr: (text) => logDebug("WASM-ERR: " + text, "#f44"),
         
         onRuntimeInitialized: function() {
-            logDebug("WASM CORE ACTIVE", "#fff");
-            logDebug("CLICK THE CANVAS TO START AUDIO", "#f0f");
+            logDebug("--- WASM ENGINE INITIALIZED ---", "#fff");
+            logDebug("Click the black box above to focus and start audio.", "#f0f");
         },
 
         preRun: [function() {
             Module.addRunDependency('split-data'); 
             
             (async () => {
-                // CHANGED: Only fetching 2 parts now
+                // Ensure these match your 2 parts exactly
                 const parts = ['Data.rsdk.part1', 'Data.rsdk.part2'];
                 try {
-                    logDebug("Fetching Sonic 2 Assets...");
+                    logDebug("Downloading Sonic 2 Data...");
                     const responses = await Promise.all(parts.map(p => fetch(p)));
                     
                     for (let res of responses) {
-                        if (!res.ok) throw new Error("File not found: " + res.url);
+                        if (!res.ok) throw new Error("404: " + res.url);
                     }
 
                     const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-                    logDebug("Stitching Data...");
+                    logDebug("Stitching 2 parts together...");
                     
                     let totalLength = buffers.reduce((a, b) => a + b.byteLength, 0);
                     let combined = new Uint8Array(totalLength);
@@ -58,18 +56,18 @@
                         offset += b.byteLength; 
                     }
 
-                    // Create both filename variants for maximum compatibility
+                    // Write filenames for all possible cases
                     Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
                     Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
                     
-                    // Standard settings for Sonic 2
-                    const settings = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nvsync=1\n";
+                    // Force Video Settings
+                    const settings = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n";
                     Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settings), true, true, true);
 
-                    logDebug("Filesystem Ready. Files: " + Module.FS.readdir('/').join(', '), "#0ff");
+                    logDebug("Filesystem Ready. Starting Main Loop...", "#0ff");
                     Module.removeRunDependency('split-data'); 
                 } catch (e) {
-                    logDebug("FATAL ERROR: " + e.message, "#f00");
+                    logDebug("FATAL: " + e.message, "#f00");
                 }
             })();
         }]
