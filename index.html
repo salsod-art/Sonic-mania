@@ -3,74 +3,67 @@
 <head>
     <meta charset="utf-8">
     <script src="coi-serviceworker.js"></script>
-    <title>RSDKv4 Deep Analysis</title>
+    <title>Sonic 2 Mobile Port</title>
     <style>
-        body { background: #000; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
-        canvas { border: 1px solid #444; width: 800px; height: 450px; background: #000; }
-        #debug-log { width: 800px; height: 250px; overflow-y: scroll; font-size: 10px; color: #bbb; background: #050505; padding: 10px; border: 1px solid #222; margin-top: 10px; line-height: 1.4; }
-        .err { color: #ff5555; }
-        .sys { color: #5555ff; }
-        .engine { color: #55ff55; }
+        body { background: #111; color: #0f0; display: flex; flex-direction: column; align-items: center; font-family: monospace; }
+        canvas { border: 2px solid #333; width: 800px; height: 450px; background: #000; margin-top: 20px; }
+        #status { margin: 15px; font-size: 14px; color: #fff; background: #222; padding: 10px; width: 780px; text-align: center; border-radius: 5px; }
     </style>
 </head>
 <body>
     <canvas id="canvas" oncontextmenu="event.preventDefault()"></canvas>
-    <div id="debug-log">Scanning System...<br></div>
+    <div id="status">Preparing Engine...</div>
 
     <script type='text/javascript'>
-      const log = document.getElementById('debug-log');
-      function out(msg, cls = "") {
-          log.innerHTML += `<div class="${cls}">[${new Date().toLocaleTimeString()}] ${msg}</div>`;
-          log.scrollTop = log.scrollHeight;
-      }
-
+      const statusDisp = document.getElementById('status');
+      
       var Module = {
         canvas: document.getElementById('canvas'),
-        print: (t) => out("ENGINE: " + t, "engine"),
-        printErr: (t) => {
-            if (t.includes("failed to fill whole buffer")) return; // Ignore noisy sound warnings
-            out("WASM-ERR: " + t, "err");
-        },
+        // We are using standard console logs now to prevent the 'Call Stack' crash
+        print: (text) => console.log("RSDK:", text),
+        printErr: (text) => console.error("RSDK-ERR:", text),
         
-        onRuntimeInitialized: function() {
-            out("CORE: WASM molecules assembled. Engine is hot.", "sys");
-            out("ACTION: CLICK CANVAS AND PRESS 'ENTER' OR 'ESC'", "#fff");
+        setStatus: (text) => {
+            if (statusDisp) statusDisp.innerHTML = text;
         },
 
         preRun: [function() {
-            // SPY ON THE FILESYSTEM
-            const originalOpen = Module.FS.open;
-            Module.FS.open = function(path, flags, mode) {
-                out("FS_ACCESS: Attempting to open -> " + path, "sys");
-                return originalOpen.apply(this, arguments);
-            };
-
-            Module.addRunDependency('split-data'); 
+            Module.addRunDependency('data-load'); 
             
             (async () => {
-                const parts = ['Data.rsdk.part1', 'Data.rsdk.part2'];
                 try {
-                    out("NET: Fetching 2-part payload...");
-                    const res = await Promise.all(parts.map(p => fetch(p)));
-                    const bufs = await Promise.all(res.map(r => r.arrayBuffer()));
+                    Module.setStatus("Downloading Sonic 2 Parts...");
+                    // Using the 2 parts you mentioned
+                    const parts = ['Data.rsdk.part1', 'Data.rsdk.part2'];
+                    const responses = await Promise.all(parts.map(p => fetch(p)));
                     
-                    let total = bufs.reduce((a, b) => a + b.byteLength, 0);
-                    let combined = new Uint8Array(total);
-                    let offset = 0;
-                    for (let b of bufs) { combined.set(new Uint8Array(b), offset); offset += b.byteLength; }
+                    for (let res of responses) {
+                        if (!res.ok) throw new Error("File " + res.url + " not found!");
+                    }
 
-                    // Mount the data in every possible naming convention
-                    const targets = ['Data.rsdk', 'data.rsdk', 'Data.RSDK', 'data.RSDK'];
-                    targets.forEach(n => Module.FS_createDataFile('/', n, combined, true, true, true));
+                    const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
+                    Module.setStatus("Stitching Game Data...");
                     
-                    // Force a settings file that enables DevMenu for debugging
-                    const ini = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n[Game]\nDevMenu=1\nLanguage=0\n";
+                    const total = buffers.reduce((a, b) => a + b.byteLength, 0);
+                    const combined = new Uint8Array(total);
+                    let offset = 0;
+                    for (let b of buffers) { 
+                        combined.set(new Uint8Array(b), offset); 
+                        offset += b.byteLength; 
+                    }
+
+                    // Create the file in the virtual drive
+                    Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
+                    Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
+                    
+                    // Essential settings for Mobile RSDKv4 data
+                    const ini = "[Video]\nWindowed=0\nfsWidth=800\nfsHeight=450\nRenderer=0\n[Game]\nLanguage=0\n";
                     Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(ini), true, true, true);
 
-                    out("VFS: Root directory populated.", "sys");
-                    Module.removeRunDependency('split-data'); 
+                    Module.setStatus("Ready! Click canvas and press Enter.");
+                    Module.removeRunDependency('data-load'); 
                 } catch (e) {
-                    out("FATAL: " + e.message, "err");
+                    Module.setStatus("<span style='color:red'>ERROR: " + e.message + "</span>");
                 }
             })();
         }]
