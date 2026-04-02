@@ -16,77 +16,73 @@
     <div id="status">System Standby...</div>
     <div id="debug-log">Debug Console Initialized...<br></div>
 
-    <script type='text/javascript'>
-      const statusElement = document.getElementById('status');
-      const debugElement = document.getElementById('debug-log');
+<script type='text/javascript'>
+  const statusElement = document.getElementById('status');
+  const debugElement = document.getElementById('debug-log');
 
-      function logDebug(msg, color = "#aaa") {
-          console.log("DEBUG: " + msg);
-          debugElement.innerHTML += `<span style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
-          debugElement.scrollTop = debugElement.scrollHeight;
-      }
+  function logDebug(msg, color = "#aaa") {
+      console.log("DEBUG: " + msg);
+      debugElement.innerHTML += `<span style="color:${color}">[${new Date().toLocaleTimeString()}] ${msg}</span><br>`;
+      debugElement.scrollTop = debugElement.scrollHeight;
+  }
 
-      var Module = {
-        canvas: document.getElementById('canvas'),
-        print: (text) => logDebug("WASM: " + text, "#0f0"),
-        printErr: (text) => logDebug("WASM-ERR: " + text, "#f44"),
-        setStatus: (text) => {
-            if (statusElement) statusElement.innerHTML = text;
-            logDebug("Status Change: " + text, "#55f");
-        },
+  var Module = {
+    canvas: document.getElementById('canvas'),
+    // Track every time the engine tries to open a file
+    onRuntimeInitialized: function() {
+        logDebug("WASM Runtime Ready. Main loop starting...", "#fff");
+    },
+    print: (text) => logDebug("ENGINE: " + text, "#0f0"),
+    printErr: (text) => logDebug("ENGINE-ERR: " + text, "#f44"),
+    setStatus: (text) => {
+        if (statusElement) statusElement.innerHTML = text;
+        logDebug("Status: " + text, "#55f");
+    },
+    
+    preRun: [function() {
+        // Intercepting File System calls to see what the engine is looking for
+        const originalOpen = Module.FS_createDataFile;
+        logDebug("Hooking File System...", "#ff0");
+
+        Module.addRunDependency('split-data'); 
         
-        preRun: [function() {
-            Module.addRunDependency('split-data'); 
-            
-            (async () => {
-                const parts = ['Data.rsdk.part1', 'Data.rsdk.part2', 'Data.rsdk.part3', 'Data.rsdk.part4'];
+        (async () => {
+            const parts = ['Data.rsdk.part1', 'Data.rsdk.part2', 'Data.rsdk.part3', 'Data.rsdk.part4'];
+            try {
+                logDebug("Fetching parts...");
+                const responses = await Promise.all(parts.map(p => fetch(p)));
+                const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
                 
-                try {
-                    logDebug("Starting Fetch operation...");
-                    const responses = await Promise.all(parts.map(p => fetch(p)));
-                    
-                    for (let res of responses) {
-                        if (!res.ok) throw new Error("Network error on: " + res.url);
-                    }
-
-                    const buffers = await Promise.all(responses.map(r => r.arrayBuffer()));
-                    logDebug("Parts downloaded. Total pieces: " + buffers.length, "#ff0");
-                    
-                    let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
-                    let combined = new Uint8Array(totalLength);
-                    let offset = 0;
-                    for (let buf of buffers) {
-                        combined.set(new Uint8Array(buf), offset);
-                        offset += buf.byteLength;
-                    }
-                    logDebug(`Reassembled file size: ${(totalLength / 1024 / 1024).toFixed(2)} MB`, "#ff0");
-                    
-                    // WRITE THE FILES
-                    Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
-                    logDebug("File 'Data.rsdk' written to Virtual Root.", "#fff");
-
-                    const settingsContent = `[Video]\nWindowed=0\nRenderer=0\nfsWidth=800\nfsHeight=450\n`;
-                    Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settingsContent), true, true, true);
-                    logDebug("File 'settings.ini' written to Virtual Root.", "#fff");
-
-                    // FS EXPLORER: List everything in the root to be 100% sure
-                    try {
-                        const files = Module.FS.readdir('/');
-                        logDebug("Current Virtual Filesystem: " + files.join(', '), "#0ff");
-                    } catch(fsErr) {
-                        logDebug("FS Check Failed: " + fsErr.message, "#f00");
-                    }
-
-                    logDebug("Handing control to RSDKv4 Engine...", "#0f0");
-                    Module.removeRunDependency('split-data'); 
-                } catch (e) {
-                    logDebug("CRITICAL: " + e.message, "#f00");
-                    Module.setStatus("Boot Failure: Check Debug Log");
+                let totalLength = buffers.reduce((acc, buf) => acc + buf.byteLength, 0);
+                let combined = new Uint8Array(totalLength);
+                let offset = 0;
+                for (let buf of buffers) {
+                    combined.set(new Uint8Array(buf), offset);
+                    offset += buf.byteLength;
                 }
-            })();
-        }]
-      };
-    </script>
+
+                // 1. TRY LOWERCASE 'data.rsdk' JUST IN CASE
+                Module.FS_createDataFile('/', 'data.rsdk', combined, true, true, true);
+                // 2. ALSO PROVIDE UPPERCASE 'Data.rsdk' (Linked to same data)
+                Module.FS_createDataFile('/', 'Data.rsdk', combined, true, true, true);
+                
+                const settings = `[Video]\nWindowed=0\nRenderer=0\nfsWidth=800\nfsHeight=450\n`;
+                Module.FS_createDataFile('/', 'settings.ini', new TextEncoder().encode(settings), true, true, true);
+
+                logDebug("VFS Snapshot: " + Module.FS.readdir('/').join(', '), "#0ff");
+                
+                logDebug("Checking WASM exports...");
+                if (Module['_main']) logDebug("Found _main entry point.");
+
+                logDebug("CRITICAL: Click the canvas NOW to ensure AudioContext starts.", "#f0f");
+                Module.removeRunDependency('split-data'); 
+            } catch (e) {
+                logDebug("BOOT ERR: " + e.message, "#f00");
+            }
+        })();
+    }]
+  };
+</script>
 
     <script src="RSDKv4.js"></script>
 </body>
